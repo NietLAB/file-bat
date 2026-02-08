@@ -1,126 +1,81 @@
 # Config
-## ProcessName
 $ProcessName = "SPACEPLAN"
 
+# 1. Definiciones Core con nombres únicos para evitar errores de colisión
+$codeBankai = @"
+using System;
+using System.Runtime.InteropServices;
 
-$code = @' 
-using System; 
-using System.Runtime.InteropServices; 
- 
-public static class Keyboard{ 
-     
-    [DllImport("user32.dll", CharSet = CharSet.Auto, ExactSpelling = true, CallingConvention = CallingConvention.Winapi)] 
-    public static extern short GetKeyState(int keyCode); 
-     
-    public static bool Numlock{ 
-        get{ 
-            return (((ushort)GetKeyState(0x90)) & 0xffff) != 0; 
-        } 
-    } 
-     
-     public static bool CapsLock{ 
-         get{
-            return (((ushort)GetKeyState(0x14)) & 0xffff) != 0;
-        }
-     }
+public static class BankaiKey {
+    [DllImport("user32.dll")]
+    public static extern short GetKeyState(int keyCode);
     
-    public static bool ScrollLock{
-        get{
-            return (((ushort)GetKeyState(0x91)) & 0xffff) != 0;
-        }
-    }
+    public static bool IsCapsLockOn => (GetKeyState(0x14) & 0xffff) != 0;
+    public static bool IsScrollLockOn => (GetKeyState(0x91) & 0xffff) != 0;
 }
-'@
 
-$signature = @"
-	
-	[DllImport("user32.dll")]  
-	public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);  
-	public static IntPtr FindWindow(string windowName){
-		return FindWindow(null,windowName);
-	}
-	[DllImport("user32.dll")]
-	public static extern bool SetWindowPos(IntPtr hWnd, 
-	IntPtr hWndInsertAfter, int X,int Y, int cx, int cy, uint uFlags);
-	[DllImport("user32.dll")]  
-	public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); 
-	static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
-	static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
-	const UInt32 SWP_NOSIZE = 0x0001;
-	const UInt32 SWP_NOMOVE = 0x0002;
-	const UInt32 TOPMOST_FLAGS = SWP_NOMOVE | SWP_NOSIZE;
-	public static void MakeTopMost (IntPtr fHandle)
-	{
-		SetWindowPos(fHandle, HWND_TOPMOST, 0, 0, 0, 0, TOPMOST_FLAGS);
-	}
-	public static void MakeNormal (IntPtr fHandle)
-	{
-		SetWindowPos(fHandle, HWND_NOTOPMOST, 0, 0, 0, 0, TOPMOST_FLAGS);
-	}
+public static class BankaiWin {
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+}
 "@
 
-# Intentar cargar los tipos (usando try/catch para evitar errores si ya existen en la sesión)
-try { Add-Type $code -ErrorAction SilentlyContinue } catch {}
-try { $app = Add-Type -MemberDefinition $signature -Name Win32Window -Namespace ScriptFanatic.WinAPI -ReferencedAssemblies System.Windows.Forms -Using System.Windows.Forms -PassThru -ErrorAction SilentlyContinue } catch {}
-
+# Carga segura de tipos
 try {
-Add-Type @" 
-  using System; 
-  using System.Runtime.InteropServices; 
-  public class UserWindows { 
-    [DllImport("user32.dll")] 
-    public static extern IntPtr GetForegroundWindow(); 
-} 
-"@ -ErrorAction SilentlyContinue
-} catch {}
-
-function Get-ForgroundWindow {
-    return [UserWindows]::GetForegroundWindow()
+    Add-Type -TypeDefinition $codeBankai -ErrorAction SilentlyContinue
+} catch {
+    # Si falla es porque ya están cargados, lo cual está bien.
 }
 
-function Get-WindowByTitle($WindowTitle = "*") {
-    if ($WindowTitle -eq "*") {
-        Get-Process | Where-Object {$_.MainWindowTitle} | Select-Object Id, Name, MainWindowHandle, MainWindowTitle
-    }
-    else {
-        Get-Process | Where-Object {$_.MainWindowTitle -like "*$WindowTitle*"} | Select-Object Id, Name, MainWindowHandle, MainWindowTitle
-    }
-}
+Add-Type -AssemblyName System.Windows.Forms
 
-add-type -AssemblyName Microsoft.VisualBasic
-add-type -AssemblyName System.Windows.Forms
-
-# --- NUEVA INTERFAZ BANKAI CLICKER ---
+# --- INTERFAZ BANKAI CLICKER ---
 Clear-Host
-Write-Host "----------------------------------" -ForegroundColor Magenta
-Write-Host "         BANKAI CLICKER           " -ForegroundColor Cyan -BackgroundColor Black
-Write-Host "----------------------------------" -ForegroundColor Magenta
+Write-Host "====================================" -ForegroundColor Magenta
+Write-Host "         BANKAI CLICKER v2          " -ForegroundColor Cyan -BackgroundColor Black
+Write-Host "====================================" -ForegroundColor Magenta
+Write-Host ""
+
 $quittime = $false
 
-if (Get-process | Where-Object {$_.ProcessName -contains $ProcessName} -ErrorAction SilentlyContinue) {
-    Write-Host "[!] $ProcessName detectado. Activación lista." -ForegroundColor Green
-}
-else {
-    Write-Host "[?] $ProcessName no encontrado. Esperando ejecutable..." -ForegroundColor Yellow
+# Verificación de proceso inicial
+$p = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue
+if ($p) {
+    Write-Host "[!] $ProcessName detectado y vinculado." -ForegroundColor Green
+} else {
+    Write-Host "[?] Esperando a que abras $ProcessName..." -ForegroundColor Yellow
 }
 
-Write-Host ">> Usa SCROLL LOCK para cliquear." -ForegroundColor White
-Write-Host ">> Usa CAPS LOCK para cerrar." -ForegroundColor Red
-Write-Host "----------------------------------"
+Write-Host "------------------------------------" -ForegroundColor Gray
+Write-Host " > ACTIVAR:  Scroll Lock" -ForegroundColor White
+Write-Host " > SALIR:    Caps Lock" -ForegroundColor Red
+Write-Host "------------------------------------" -ForegroundColor Gray
 
-# --- BUCLE ORIGINAL ---
+# --- BUCLE DE EJECUCIÓN ---
 do {
-
-    $proc = Get-process | Where-Object {$_.ProcessName -contains $ProcessName} -ErrorAction SilentlyContinue
-    if ($proc.MainWindowHandle -eq (Get-ForgroundWindow)) {
-        if ([Keyboard]::ScrollLock) {
-            [System.Windows.Forms.SendKeys]::SendWait(" ")
-            Start-Sleep -Milliseconds 10
+    # Buscar el proceso en cada ciclo
+    $proc = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue
+    
+    if ($proc) {
+        $activeWin = [BankaiWin]::GetForegroundWindow()
+        
+        # Solo clickea si el juego es la ventana activa
+        if ($proc.MainWindowHandle -eq $activeWin) {
+            if ([BankaiKey]::IsScrollLockOn) {
+                [System.Windows.Forms.SendKeys]::SendWait(" ")
+                Start-Sleep -Milliseconds 15
+            }
         }
     }
-    # If CapsLock is on quit
-    if ([Keyboard]::CapsLock) {
+
+    # Condición de salida
+    if ([BankaiKey]::IsCapsLockOn) {
         $quittime = $true
-        Write-Host "Liberando Bankai... Cerrando script." -ForegroundColor Magenta
+        Write-Host "`n[SISTEMA] Bankai sellado. Saliendo..." -ForegroundColor Magenta
+        Start-Sleep -Seconds 1
     }
-}while ($quittime -eq $false)
+
+    # Respiro para el CPU
+    Start-Sleep -Milliseconds 10
+
+} while (-not $quittime)
